@@ -10,7 +10,6 @@ error-iter = "0.4.1"
 pixels = "0.13.0"
 env_logger = "0.10"
 log = "0.4"
-winit = "0.28"
-winit_input_helper = "0.14"
+winit = {version = "0.29.9",  default-features = false, features = ["rwh_05", "x11", "wayland", "wayland-dlopen", "wayland-csd-adwaita"]}
 rand = "0.8.5"
 
