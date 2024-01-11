@@ -13,7 +13,7 @@ const WIDTH: usize = 64;
 const HEIGHT: usize = 32;
 const OFFSET: usize = 0x200;
 const TARGET_FPS: u64 = 60;
-const IPF: usize = 1000; // instructions per frame
+const IPF: usize = 12; // instructions per frame
 const AMIGA_BEHAVIOUR: bool = false;
 const MODERN_STR_LD_BEHAVIOUR: bool = false;
 const MODERN_SHIFT_BEHAVIOUR: bool = false;
@@ -104,8 +104,8 @@ fn main() {
     // interpreter.load("roms/2-ibm-logo.ch8").unwrap();
     // interpreter.load("roms/3-corax+.ch8").unwrap();
     // interpreter.load("roms/4-flags.ch8").unwrap();
-    // interpreter.load("roms/5-quirks.ch8").unwrap();
-    interpreter.load("roms/6-keypad.ch8").unwrap();
+    interpreter.load("roms/5-quirks.ch8").unwrap();
+    // interpreter.load("roms/6-keypad.ch8").unwrap();
 
     let mut keys = Vec::new();
 
@@ -608,14 +608,15 @@ impl Interpreter {
 
         for (key, state) in keys {
             if let Some(key) = key.to_text().and_then(get_key) {
-                // if *state == ElementState::Released {
-                if let KeyStatus::KeyAwait = self.key_wait_status {
-                    self.key_wait_status = KeyStatus::KeyConf(key);
-                }
-                // }
-
-                if *state == ElementState::Pressed {
-                    last = Some(key);
+                match *state {
+                    ElementState::Pressed => {
+                        last = Some(key);
+                    }
+                    ElementState::Released => {
+                        if let KeyStatus::KeyAwait = self.key_wait_status {
+                            self.key_wait_status = KeyStatus::KeyConf(key);
+                        }
+                    }
                 }
 
                 match state {
@@ -626,7 +627,7 @@ impl Interpreter {
                         self.keys[key as usize].release();
                     }
                 }
-                // println!("{key:?} {state:?}");
+                println!("{key:?} {state:?}");
             }
         }
 
@@ -638,8 +639,13 @@ impl Interpreter {
             self.exe();
         }
 
-        self.delay_timer = (self.delay_timer + 59) % 60;
-        self.sound_timer = (self.sound_timer + 59) % 60;
+        if self.delay_timer != 0 {
+            self.delay_timer -= 1;
+        }
+        if self.sound_timer != 0 {
+            self.sound_timer -= 1;
+        }
+
         if let Some((_, frames_ago)) = &mut self.last_pressed_frames_ago {
             *frames_ago = (*frames_ago + 1).min(60);
         }
