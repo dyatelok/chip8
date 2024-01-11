@@ -216,6 +216,12 @@ fn get_key(key: &str) -> Option<KeypadKey> {
     }
 }
 
+enum KeyStatus {
+    NoKeyAwait,
+    KeyAwait,
+    KeyConf(KeypadKey),
+}
+
 struct Interpreter {
     memory: Vec<u8>,
     screen: [[bool; WIDTH]; HEIGHT],
@@ -228,6 +234,7 @@ struct Interpreter {
     halt: bool,
     keys: [KeyState; 16],
     last_pressed_frames_ago: Option<(KeypadKey, u8)>,
+    key_wait_status: KeyStatus,
 }
 
 impl Interpreter {
@@ -244,6 +251,7 @@ impl Interpreter {
             halt: false,
             keys: [KeyState::new(); 16],
             last_pressed_frames_ago: None,
+            key_wait_status: KeyStatus::NoKeyAwait,
         }
     }
 
@@ -496,15 +504,17 @@ impl Interpreter {
             }
             (0xF, _, 0x0, 0xA) => {
                 //TODO	Wait for a keypress and store the result in register VX
-                if let Some((key, frames_ago)) = self.last_pressed_frames_ago {
-                    if frames_ago == 0 {
+                //TODO On the original COSMAC VIP, the key was only registered when it was pressed and then released.
+                use KeyStatus as KS;
+                self.key_wait_status = match self.key_wait_status {
+                    KS::KeyConf(key) => {
                         self.registers[x as usize] = key as u8;
-                    } else {
-                        self.program_counter -= 2;
+                        KS::NoKeyAwait
                     }
-                    //TODO On the original COSMAC VIP, the key was only registered when it was pressed and then released.
-                } else {
-                    self.program_counter -= 2;
+                    _ => {
+                        self.program_counter -= 2;
+                        KS::KeyAwait
+                    }
                 }
             }
             (0xF, _, 0x1, 0x5) => {
@@ -518,8 +528,11 @@ impl Interpreter {
             (0xF, _, 0x1, 0xE) => {
                 //Add the value stored in register VX to register I
                 if AMIGA_BEHAVIOUR {
+                    // set VF to 1 if index overflow
                     let prev = self.index <= 0xFFF;
+
                     self.index += self.registers[x as usize] as u16;
+
                     if prev && self.index > 0x0FFF {
                         self.registers[0xF] = 0x1;
                     } else {
@@ -595,6 +608,12 @@ impl Interpreter {
 
         for (key, state) in keys {
             if let Some(key) = key.to_text().and_then(get_key) {
+                // if *state == ElementState::Released {
+                if let KeyStatus::KeyAwait = self.key_wait_status {
+                    self.key_wait_status = KeyStatus::KeyConf(key);
+                }
+                // }
+
                 if *state == ElementState::Pressed {
                     last = Some(key);
                 }
