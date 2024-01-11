@@ -13,7 +13,7 @@ const WIDTH: usize = 64;
 const HEIGHT: usize = 32;
 const OFFSET: usize = 0x200;
 const TARGET_FPS: u64 = 60;
-const IPF: usize = 12; // instructions per frame
+const IPF: usize = 500; // instructions per frame
 const AMIGA_BEHAVIOUR: bool = false;
 const MODERN_STR_LD_BEHAVIOUR: bool = false;
 const MODERN_SHIFT_BEHAVIOUR: bool = false;
@@ -39,18 +39,13 @@ impl KeyState {
         self.released_frames_ago = 0;
     }
     fn update_pressed(&mut self) {
-        self.pressed_frames_ago += 1;
-        self.pressed_frames_ago = self.pressed_frames_ago.min(60);
+        self.pressed_frames_ago = (self.pressed_frames_ago + 1).min(60);
     }
     fn update_released(&mut self) {
-        self.released_frames_ago += 1;
-        self.released_frames_ago = self.released_frames_ago.min(60);
+        self.released_frames_ago = (self.released_frames_ago + 1).min(60);
     }
     fn is_pressed(&self) -> bool {
-        self.pressed_frames_ago <= 3
-    }
-    fn is_released(&self) -> bool {
-        self.released_frames_ago <= 3
+        self.pressed_frames_ago == 1
     }
 }
 
@@ -104,8 +99,8 @@ fn main() {
     // interpreter.load("roms/2-ibm-logo.ch8").unwrap();
     // interpreter.load("roms/3-corax+.ch8").unwrap();
     // interpreter.load("roms/4-flags.ch8").unwrap();
-    interpreter.load("roms/5-quirks.ch8").unwrap();
-    // interpreter.load("roms/6-keypad.ch8").unwrap();
+    // interpreter.load("roms/5-quirks.ch8").unwrap();
+    interpreter.load("roms/6-keypad.ch8").unwrap();
 
     let mut keys = Vec::new();
 
@@ -233,7 +228,6 @@ struct Interpreter {
     registers: [u8; 16],
     halt: bool,
     keys: [KeyState; 16],
-    last_pressed_frames_ago: Option<(KeypadKey, u8)>,
     key_wait_status: KeyStatus,
 }
 
@@ -250,7 +244,6 @@ impl Interpreter {
             registers: [0; 16],
             halt: false,
             keys: [KeyState::new(); 16],
-            last_pressed_frames_ago: None,
             key_wait_status: KeyStatus::NoKeyAwait,
         }
     }
@@ -503,8 +496,8 @@ impl Interpreter {
                 self.registers[x as usize] = self.delay_timer;
             }
             (0xF, _, 0x0, 0xA) => {
-                //TODO	Wait for a keypress and store the result in register VX
-                //TODO On the original COSMAC VIP, the key was only registered when it was pressed and then released.
+                // Wait for a keypress and store the result in register VX
+                // On the original COSMAC VIP, the key was only registered when it was pressed and then released.
                 use KeyStatus as KS;
                 self.key_wait_status = match self.key_wait_status {
                     KS::KeyConf(key) => {
@@ -599,31 +592,17 @@ impl Interpreter {
     }
 
     fn update(&mut self, keys: &[(Key, ElementState)]) {
-        for key in &mut self.keys {
-            key.update_pressed();
-            key.update_released();
-        }
-
-        let mut last = None;
-
         for (key, state) in keys {
             if let Some(key) = key.to_text().and_then(get_key) {
-                match *state {
-                    ElementState::Pressed => {
-                        last = Some(key);
-                    }
-                    ElementState::Released => {
-                        if let KeyStatus::KeyAwait = self.key_wait_status {
-                            self.key_wait_status = KeyStatus::KeyConf(key);
-                        }
-                    }
-                }
-
                 match state {
                     ElementState::Pressed => {
                         self.keys[key as usize].press();
                     }
                     ElementState::Released => {
+                        if let KeyStatus::KeyAwait = self.key_wait_status {
+                            self.key_wait_status = KeyStatus::KeyConf(key);
+                        }
+
                         self.keys[key as usize].release();
                     }
                 }
@@ -631,31 +610,22 @@ impl Interpreter {
             }
         }
 
-        if let Some(keypad_key) = last {
-            self.last_pressed_frames_ago = Some((keypad_key, 0));
-        }
-
         for _ in 0..IPF {
             self.exe();
         }
 
-        if self.delay_timer != 0 {
-            self.delay_timer -= 1;
-        }
-        if self.sound_timer != 0 {
-            self.sound_timer -= 1;
-        }
+        // update timers
+        self.delay_timer = self.delay_timer.saturating_sub(1);
+        self.sound_timer = self.sound_timer.saturating_sub(1);
 
-        if let Some((_, frames_ago)) = &mut self.last_pressed_frames_ago {
-            *frames_ago = (*frames_ago + 1).min(60);
+        // update kets
+        for key in &mut self.keys {
+            key.update_pressed();
+            key.update_released();
         }
     }
 
     fn is_key_pressed(&self, key: u8) -> bool {
         self.keys[key as usize].is_pressed()
-    }
-
-    fn is_key_released(&self, key: u8) -> bool {
-        self.keys[key as usize].is_released()
     }
 }
